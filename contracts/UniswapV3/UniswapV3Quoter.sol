@@ -10,11 +10,11 @@ import "@uniswap/v3-core/contracts/interfaces/IUniswapV3Pool.sol";
 import "@uniswap/v3-core/contracts/interfaces/pool/IUniswapV3PoolImmutables.sol";
 import "@uniswap/v3-periphery/contracts/interfaces/ISwapRouter.sol";
 import "../interfaces/IQuoter.sol";
-import "../libraries/FullMath.sol";
-import "../libraries/TickMath.sol";
-import "../libraries/SafeCast.sol";
-import "../libraries/TickBitmap.sol";
-import "../libraries/SqrtPriceMath.sol";
+import "../libraries/UniswapV3/FullMath.sol";
+import "../libraries/UniswapV3/TickMath.sol";
+import "../libraries/UniswapV3/SafeCast.sol";
+import "../libraries/UniswapV3/TickBitmap.sol";
+import "../libraries/UniswapV3/SqrtPriceMath.sol";
 import './BaseQuoter.sol';
 
 contract UniswapV3Quoter is BaseQuoter, IQuoter {
@@ -30,7 +30,7 @@ contract UniswapV3Quoter is BaseQuoter, IQuoter {
     function doesPoolExist(
         address _token0,
         address _token1
-    ) external view override returns (bool) {
+    ) external view returns (bool) {
         // try 0.05%
         address pool = uniV3Factory.getPool(_token0, _token1, 500);
         if (pool != address(0)) return true;
@@ -45,25 +45,39 @@ contract UniswapV3Quoter is BaseQuoter, IQuoter {
         else return false;
     }
 
-    function estimateMaxSwapUniswapV3(
+    function getCheapestPool(
+        address _token0,
+        address _token1
+    ) public view returns (address pool) {
+        // try 0.05%
+        pool = uniV3Factory.getPool(_token0, _token1, 500);
+        if (pool != address(0)) return pool;
+
+        // try 0.3%
+        pool = uniV3Factory.getPool(_token0, _token1, 3000);
+        if (pool != address(0)) return pool;
+
+        // try 1%
+        pool = uniV3Factory.getPool(_token0, _token1, 10000);
+        if (pool != address(0)) return pool;
+        else require(false, "Pool does not exist");
+    }
+
+    function quoteObtainedTokens(
         address _fromToken,
         address _toToken,
-        uint256 _amount,
-        uint24 _poolFee
+        uint256 _amount
     ) public view override returns (uint256) {
-        address pool = uniV3Factory.getPool(_fromToken, _toToken, _poolFee);
-
+        address pool = getCheapestPool(_fromToken, _toToken);
         return _estimateOutputSingle(_toToken, _fromToken, _amount, pool);
     }
 
-    function estimateMinSwapUniswapV3(
+    function quoteNeededTokens(
         address _fromToken,
         address _toToken,
-        uint256 _amount,
-        uint24 _poolFee
+        uint256 _amount
     ) public view override returns (uint256) {
-        address pool = uniV3Factory.getPool(_fromToken, _toToken, _poolFee);
-
+        address pool = getCheapestPool(_fromToken, _toToken);
         return _estimateInputSingle(_toToken, _fromToken, _amount, pool);
     }
 

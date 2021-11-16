@@ -4,15 +4,15 @@ pragma experimental ABIEncoderV2;
 
 import "@uniswap/v3-core/contracts/interfaces/IUniswapV3Pool.sol";
 import "@uniswap/v3-core/contracts/interfaces/pool/IUniswapV3PoolImmutables.sol";
-import "../libraries/LowGasSafeMath.sol";
-import "../libraries/SafeCast.sol";
-import "../libraries/Tick.sol";
-import "../libraries/TickBitmap.sol";
-import "../libraries/FullMath.sol";
-import "../libraries/TickMath.sol";
-import "../libraries/LiquidityMath.sol";
-import "../libraries/SqrtPriceMath.sol";
-import "../libraries/SwapMath.sol";
+import "../libraries/UniswapV3/LowGasSafeMath.sol";
+import "../libraries/UniswapV3/SafeCast.sol";
+import "../libraries/UniswapV3/Tick.sol";
+import "../libraries/UniswapV3/TickBitmap.sol";
+import "../libraries/UniswapV3/FullMath.sol";
+import "../libraries/UniswapV3/TickMath.sol";
+import "../libraries/UniswapV3/LiquidityMath.sol";
+import "../libraries/UniswapV3/SqrtPriceMath.sol";
+import "../libraries/UniswapV3/SwapMath.sol";
 
 contract BaseQuoter {
     using LowGasSafeMath for uint256;

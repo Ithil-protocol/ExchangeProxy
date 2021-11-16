@@ -9,17 +9,17 @@ import "@uniswap/v3-core/contracts/interfaces/IUniswapV3Factory.sol";
 import "@uniswap/v3-core/contracts/interfaces/IUniswapV3Pool.sol";
 import "@uniswap/v3-core/contracts/interfaces/pool/IUniswapV3PoolImmutables.sol";
 import "@uniswap/v3-periphery/contracts/interfaces/ISwapRouter.sol";
-import "../interfaces/IUniswapV3Swapper.sol";
-import "../libraries/FullMath.sol";
-import "../libraries/SafeCast.sol";
-import "../libraries/TickMath.sol";
-import "../libraries/SwapMath.sol";
-import "../libraries/UniswapV3Math.sol";
-import "../libraries/UniswapPath.sol";
-import "../libraries/TickBitmap.sol";
-import "../libraries/SqrtPriceMath.sol";
+import "../interfaces/ISwapper.sol";
+import "../libraries/UniswapV3/FullMath.sol";
+import "../libraries/UniswapV3/SafeCast.sol";
+import "../libraries/UniswapV3/TickMath.sol";
+import "../libraries/UniswapV3/SwapMath.sol";
+import "../libraries/UniswapV3/UniswapPath.sol";
+import "../libraries/UniswapV3/UniswapV3Math.sol";
+import "../libraries/UniswapV3/TickBitmap.sol";
+import "../libraries/UniswapV3/SqrtPriceMath.sol";
 
-contract UniswapV3Swapper is IUniswapV3Swapper {
+contract UniswapV3Swapper {
     using UniswapPath for bytes;
     using SafeERC20 for IERC20;
     using SafeCast for uint256;
@@ -39,7 +39,7 @@ contract UniswapV3Swapper is IUniswapV3Swapper {
         int256 amount0Delta,
         int256 amount1Delta,
         bytes calldata _data
-    ) external override {
+    ) external {
         SwapCallbackData memory data = abi.decode(_data, (SwapCallbackData));
         (address tokenIn, address tokenOut, uint24 fee) = data
             .path

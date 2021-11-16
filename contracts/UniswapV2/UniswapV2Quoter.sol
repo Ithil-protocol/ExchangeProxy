@@ -6,7 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@uniswap/v2-core/contracts/interfaces/IUniswapV2Factory.sol";
 import "../interfaces/IQuoter.sol";
-import "../libraries/UniswapV2Library.sol";
+import "../libraries/UniswapV2/UniswapV2Library.sol";
 
 contract UniswapV2Quoter is IQuoter {
     using SafeERC20 for IERC20;
@@ -17,7 +17,7 @@ contract UniswapV2Quoter is IQuoter {
         uniV2Factory = _uniV2Factory;
     }
 
-    function estimateMaxSwapUniswapV2(
+    function quoteObtainedTokens(
         address _fromToken,
         address _toToken,
         uint256 _amount
@@ -45,7 +45,7 @@ contract UniswapV2Quoter is IQuoter {
             );
     }
 
-    function estimateMinSwapUniswapV2(
+    function quoteNeededTokens(
         address _fromToken,
         address _toToken,
         uint256 _amount
