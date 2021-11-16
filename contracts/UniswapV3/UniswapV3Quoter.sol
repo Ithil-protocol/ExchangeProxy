@@ -9,7 +9,7 @@ import "@uniswap/v3-core/contracts/interfaces/IUniswapV3Factory.sol";
 import "@uniswap/v3-core/contracts/interfaces/IUniswapV3Pool.sol";
 import "@uniswap/v3-core/contracts/interfaces/pool/IUniswapV3PoolImmutables.sol";
 import "@uniswap/v3-periphery/contracts/interfaces/ISwapRouter.sol";
-import "../interfaces/IUniswapV3Quoter.sol";
+import "../interfaces/IQuoter.sol";
 import "../libraries/FullMath.sol";
 import "../libraries/TickMath.sol";
 import "../libraries/SafeCast.sol";
@@ -17,7 +17,7 @@ import "../libraries/TickBitmap.sol";
 import "../libraries/SqrtPriceMath.sol";
 import './BaseQuoter.sol';
 
-contract UniswapV3Quoter is BaseQuoter, IUniswapV3Quoter {
+contract UniswapV3Quoter is BaseQuoter, IQuoter {
     using SafeERC20 for IERC20;
     using SafeCast for uint256;
 
