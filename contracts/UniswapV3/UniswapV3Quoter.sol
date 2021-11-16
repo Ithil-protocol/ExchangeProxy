@@ -2,192 +2,96 @@
 pragma solidity >=0.8.0 <0.9.0;
 pragma experimental ABIEncoderV2;
 
+import "@openzeppelin/contracts/utils/math/Math.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@uniswap/v3-core/contracts/interfaces/IUniswapV3Factory.sol";
 import "@uniswap/v3-core/contracts/interfaces/IUniswapV3Pool.sol";
 import "@uniswap/v3-core/contracts/interfaces/pool/IUniswapV3PoolImmutables.sol";
-import "../libraries/LowGasSafeMath.sol";
-import "../libraries/SafeCast.sol";
-import "../libraries/Tick.sol";
-import "../libraries/TickBitmap.sol";
+import "@uniswap/v3-periphery/contracts/interfaces/ISwapRouter.sol";
+import "../interfaces/IUniswapV3Quoter.sol";
 import "../libraries/FullMath.sol";
 import "../libraries/TickMath.sol";
-import "../libraries/LiquidityMath.sol";
+import "../libraries/SafeCast.sol";
+import "../libraries/TickBitmap.sol";
 import "../libraries/SqrtPriceMath.sol";
-import "../libraries/SwapMath.sol";
-import "../interfaces/IUniswapV3Quoter.sol";
+import './BaseQuoter.sol';
 
-contract UniswapV3Quoter is IUniswapV3Quoter {
-    using LowGasSafeMath for uint256;
-    using LowGasSafeMath for int256;
+contract UniswapV3Quoter is BaseQuoter, IUniswapV3Quoter {
+    using SafeERC20 for IERC20;
     using SafeCast for uint256;
-    using SafeCast for int256;
-    using Tick for mapping(int24 => Tick.Info);
-    using TickBitmap for uint256;
 
-    function fetchState(address _pool) internal view returns (
-        PoolState memory poolState
-        ){
-        IUniswapV3Pool pool = IUniswapV3Pool(_pool);
-        (uint160 sqrtPriceX96, int24 tick,,,,, bool unlocked) = pool.slot0();
-        uint128 liquidity = pool.liquidity();
-        int24 tickSpacing = IUniswapV3PoolImmutables(_pool).tickSpacing();
-        uint24 fee = IUniswapV3PoolImmutables(_pool).fee();
-        poolState = PoolState(sqrtPriceX96, tick, tickSpacing, fee, liquidity, unlocked);
+    IUniswapV3Factory internal immutable uniV3Factory;
+
+    constructor(address _uniV3Factory) {
+        uniV3Factory = IUniswapV3Factory(_uniV3Factory);
     }
 
-    function setInitialState(PoolState memory poolStateStart, int256 amountSpecified) 
-        internal pure returns (SwapState memory state) {
-        state =
-            SwapState({
-                amountSpecifiedRemaining: amountSpecified,
-                amountCalculated: 0,
-                sqrtPriceX96: poolStateStart.sqrtPriceX96,
-                tick: poolStateStart.tick,
-                liquidity: 0 // to be modified after initialization
-            });
+    function doesPoolExist(
+        address _token0,
+        address _token1
+    ) external view override returns (bool) {
+        // try 0.05%
+        address pool = uniV3Factory.getPool(_token0, _token1, 500);
+        if (pool != address(0)) return true;
+
+        // try 0.3%
+        pool = uniV3Factory.getPool(_token0, _token1, 3000);
+        if (pool != address(0)) return true;
+
+        // try 1%
+        pool = uniV3Factory.getPool(_token0, _token1, 10000);
+        if (pool != address(0)) return true;
+        else return false;
     }
 
-    function getNextTickAndPrice(int24 tickSpacing, int24 currentTick, IUniswapV3Pool pool, bool zeroForOne) 
-        internal view returns (int24 tickNext, bool initialized, uint160 sqrtPriceNextX96) {
-        int24 compressed = currentTick / tickSpacing;
-        if (!zeroForOne) compressed++;
-        if (currentTick < 0 && currentTick % tickSpacing != 0) compressed--; // round towards negative infinity
+    function estimateMaxSwapUniswapV3(
+        address _fromToken,
+        address _toToken,
+        uint256 _amount,
+        uint24 _poolFee
+    ) public view override returns (uint256) {
+        address pool = uniV3Factory.getPool(_fromToken, _toToken, _poolFee);
 
-        uint256 selfResult = pool.tickBitmap(int16(compressed >> 8));
-
-        (tickNext, initialized) =  
-            TickBitmap.nextInitializedTickWithinOneWord(
-                selfResult,
-                currentTick,
-                tickSpacing,
-                zeroForOne
-                );
-
-        if (tickNext < TickMath.MIN_TICK) {
-            tickNext = TickMath.MIN_TICK;
-        } else if (tickNext > TickMath.MAX_TICK) {
-            tickNext = TickMath.MAX_TICK;
-        }
-        sqrtPriceNextX96 = TickMath.getSqrtRatioAtTick(tickNext);
+        return _estimateOutputSingle(_toToken, _fromToken, _amount, pool);
     }
 
-    function quoteSwap(
-            address poolAddress,
-            int256 amountSpecified,
-            uint160 sqrtPriceLimitX96,
-            bool zeroForOne
-    ) internal view returns (int256 amount0, int256 amount1) {
-        require(amountSpecified < 0, "AS");
-        IUniswapV3Pool pool = IUniswapV3Pool(poolAddress);
+    function estimateMinSwapUniswapV3(
+        address _fromToken,
+        address _toToken,
+        uint256 _amount,
+        uint24 _poolFee
+    ) public view override returns (uint256) {
+        address pool = uniV3Factory.getPool(_fromToken, _toToken, _poolFee);
 
-        PoolState memory initialPoolState = fetchState(poolAddress);
-
-        uint128 liquidity = initialPoolState.liquidity;
-        
-        uint160 sqrtPriceX96 = initialPoolState.sqrtPriceX96;
-        uint160 sqrtPriceNextX96;
-
-        require(zeroForOne 
-                ? sqrtPriceLimitX96 < initialPoolState.sqrtPriceX96 && sqrtPriceLimitX96 > TickMath.MIN_SQRT_RATIO
-                : sqrtPriceLimitX96 > initialPoolState.sqrtPriceX96 && sqrtPriceLimitX96 < TickMath.MAX_SQRT_RATIO, "SPL");
-
-        SwapState memory state = setInitialState(initialPoolState, amountSpecified);
-
-        while (state.amountSpecifiedRemaining != 0 && sqrtPriceX96 != sqrtPriceLimitX96) {
-            StepComputations memory step;
-
-            step.sqrtPriceStartX96 = sqrtPriceX96;
-
-            (step.tickNext, step.initialized, sqrtPriceNextX96) = getNextTickAndPrice(initialPoolState.tickSpacing, state.tick, pool, zeroForOne);
-
-            (sqrtPriceX96, step.amountIn, step.amountOut, step.feeAmount) = SwapMath.computeSwapStep(
-                sqrtPriceX96,
-                (zeroForOne ? sqrtPriceNextX96 < sqrtPriceLimitX96 : sqrtPriceNextX96 > sqrtPriceLimitX96) ? sqrtPriceLimitX96 : sqrtPriceNextX96,
-                liquidity,
-                state.amountSpecifiedRemaining,
-                initialPoolState.fee,
-                zeroForOne
-            );
-
-            state.amountSpecifiedRemaining += step.amountOut.toInt256();
-            state.amountCalculated = state.amountCalculated.add((step.amountIn + step.feeAmount).toInt256());
-            
-            if (sqrtPriceX96 == sqrtPriceNextX96) {
-                if (step.initialized) {
-                    (,int128 liquidityNet,,,,,,) = pool.ticks(step.tickNext);
-                    if (zeroForOne) liquidityNet = -liquidityNet;
-                    liquidity = LiquidityMath.addDelta(liquidity, liquidityNet);
-                }
-                state.tick = zeroForOne ? step.tickNext - 1 : step.tickNext;
-            } else if (sqrtPriceX96 != step.sqrtPriceStartX96) {
-                // recompute unless we"re on a lower tick boundary (i.e. already transitioned ticks), and haven"t moved
-                state.tick = TickMath.getTickAtSqrtRatio(sqrtPriceX96);
-            }
-        }
-
-        (amount0, amount1) = 
-            zeroForOne
-            ?(state.amountCalculated, amountSpecified - state.amountSpecifiedRemaining)
-            :(amountSpecified - state.amountSpecifiedRemaining, state.amountCalculated);
+        return _estimateInputSingle(_toToken, _fromToken, _amount, pool);
     }
 
-    function quoteSwapExactAmount(
-            address poolAddress,
-            int256 amountSpecified,
-            uint160 sqrtPriceLimitX96,
-            bool zeroForOne
-        ) internal view returns (int256 amount0, int256 amount1) {
-        require(amountSpecified > 0, "ASEA");
-
-        IUniswapV3Pool pool = IUniswapV3Pool(poolAddress);
-
-        PoolState memory initialPoolState = fetchState(poolAddress);
-        
-        uint128 liquidity = initialPoolState.liquidity;
-
-        uint160 sqrtPriceX96 = initialPoolState.sqrtPriceX96;
-        uint160 sqrtPriceNextX96;
-    
-        require(zeroForOne 
-                ? sqrtPriceLimitX96 < initialPoolState.sqrtPriceX96 && sqrtPriceLimitX96 > TickMath.MIN_SQRT_RATIO
-                : sqrtPriceLimitX96 > initialPoolState.sqrtPriceX96 && sqrtPriceLimitX96 < TickMath.MAX_SQRT_RATIO, "SPL");
-
-        SwapState memory state = setInitialState(initialPoolState, amountSpecified);
-
-        while (state.amountSpecifiedRemaining != 0 && sqrtPriceX96 != sqrtPriceLimitX96) {
-            StepComputations memory step;
-
-            step.sqrtPriceStartX96 = sqrtPriceX96;
-
-            (step.tickNext, step.initialized, sqrtPriceNextX96) = getNextTickAndPrice(initialPoolState.tickSpacing, state.tick, pool, zeroForOne);
-
-            (sqrtPriceX96, step.amountIn, step.amountOut, step.feeAmount) = SwapMath.computeSwapStep(
-                sqrtPriceX96,
-                (zeroForOne ? sqrtPriceNextX96 < sqrtPriceLimitX96 : sqrtPriceNextX96 > sqrtPriceLimitX96) ? sqrtPriceLimitX96 : sqrtPriceNextX96,
-                liquidity,
-                state.amountSpecifiedRemaining,
-                initialPoolState.fee,
-                zeroForOne
-            );
-            
-            state.amountSpecifiedRemaining -= (step.amountIn + step.feeAmount).toInt256();
-            state.amountCalculated = state.amountCalculated.sub(step.amountOut.toInt256());
-            
-            if (sqrtPriceX96 == sqrtPriceNextX96) {
-                if (step.initialized) {
-                    (,int128 liquidityNet,,,,,,) = pool.ticks(step.tickNext);
-                    if (zeroForOne) liquidityNet = -liquidityNet;
-                    liquidity = LiquidityMath.addDelta(liquidity, liquidityNet);
-                }
-                state.tick = zeroForOne ? step.tickNext - 1 : step.tickNext;
-            } else if (sqrtPriceX96 != step.sqrtPriceStartX96) {
-                // recompute unless we"re on a lower tick boundary (i.e. already transitioned ticks), and haven"t moved
-                state.tick = TickMath.getTickAtSqrtRatio(sqrtPriceX96);
-            }
-        }
-
-      (amount0, amount1) = zeroForOne
-            ? (amountSpecified - state.amountSpecifiedRemaining, state.amountCalculated)
-            : (state.amountCalculated, amountSpecified - state.amountSpecifiedRemaining);
+    function _estimateOutputSingle(
+        address _fromToken,
+        address _toToken,
+        uint256 _amount,
+        address _pool
+    ) internal view returns (uint256 amountOut) {
+        bool zeroForOne = _fromToken > _toToken;
+        // todo: price limit?
+        (int256 amount0, int256 amount1) = quoteSwapExactAmount(_pool, int256(_amount), zeroForOne ? (TickMath.MIN_SQRT_RATIO + 1) : (TickMath.MAX_SQRT_RATIO - 1), zeroForOne);
+        if (zeroForOne)
+            amountOut = amount1 > 0 ? uint256(amount1) : uint256(-amount1);
+        else amountOut = amount0 > 0 ? uint256(amount0) : uint256(-amount0);
     }
 
+    function _estimateInputSingle(
+        address _fromToken,
+        address _toToken,
+        uint256 _amount,
+        address _pool
+    ) internal view returns (uint256 amountOut) {
+        bool zeroForOne = _fromToken < _toToken;
+        // todo: price limit?
+        (int256 amount0, int256 amount1) = quoteSwap(_pool, -int256(_amount), zeroForOne ? (TickMath.MIN_SQRT_RATIO + 1) : (TickMath.MAX_SQRT_RATIO - 1), zeroForOne);
+        if (zeroForOne)
+            amountOut = amount0 > 0 ? uint256(amount0) : uint256(-amount0);
+        else amountOut = amount1 > 0 ? uint256(amount1) : uint256(-amount1);
+    }    
 }
