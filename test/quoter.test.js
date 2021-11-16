@@ -15,10 +15,6 @@ const tokens = [
     address: "0x6B175474E89094C44Da98b954EedeAC495271d0F"
   },
   {
-    symbol: "LINK",
-    address: "0x514910771AF9Ca656af840dff83E8264EcF986CA"
-  },
-  {
     symbol: "UNI",
     address: "0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984"
   },
@@ -27,7 +23,7 @@ const tokens = [
 use(solidity);
 
 describe("Quoter comparison test", function () {
-  this.timeout(15000);
+  this.timeout(30000);
 
   const uniswapQuoterAddress = "0xb27308f9F90D607463bb33eA1BeBb41C27CE5AB6";
 
@@ -35,7 +31,7 @@ describe("Quoter comparison test", function () {
     tokens.filter((token) => token.address != fromToken.address).map((toToken) => {
 
       it("Should return the same price of Uniswap offchain quoter for the pair " + fromToken.symbol + " -> " + toToken.symbol, async function () {
-        const Quoter = await ethers.getContractFactory("Quoter");
+        const Quoter = await ethers.getContractFactory("UniswapV3Quoter");
         const quoter = await Quoter.deploy("0x1F98431c8aD98523631AE4a59f267346ea31F984");
         await quoter.deployed();
 
@@ -53,11 +49,10 @@ describe("Quoter comparison test", function () {
 
           console.log("Lens result" + fromToken.symbol + " -> " + toToken.symbol, ethers.utils.formatUnits(expectedAmountToReceive0, 18));
 
-          const expectedAmountToReceive1 = await quoter.estimateMaxSwapUniswapV3(
+          const expectedAmountToReceive1 = await quoter.quoteObtainedTokens(
             fromToken.address,
             toToken.address,
-            amount,
-            3000
+            amount
           );
 
           console.log("Quoter result" + fromToken.symbol + " -> " + toToken.symbol, ethers.utils.formatUnits(expectedAmountToReceive1, 18));

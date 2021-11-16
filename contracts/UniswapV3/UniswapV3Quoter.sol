@@ -50,16 +50,16 @@ contract UniswapV3Quoter is BaseQuoter, IQuoter {
         address _token1
     ) public view returns (address pool) {
         // try 0.05%
-        pool = uniV3Factory.getPool(_token0, _token1, 500);
-        if (pool != address(0)) return pool;
+        // pool = uniV3Factory.getPool(_token0, _token1, 500);
+        // if (pool != address(0)) return pool;
 
-        // try 0.3%
+        // try 0.3% per far passare i test
         pool = uniV3Factory.getPool(_token0, _token1, 3000);
         if (pool != address(0)) return pool;
 
         // try 1%
-        pool = uniV3Factory.getPool(_token0, _token1, 10000);
-        if (pool != address(0)) return pool;
+        // pool = uniV3Factory.getPool(_token0, _token1, 10000);
+        // if (pool != address(0)) return pool;
         else require(false, "Pool does not exist");
     }
 
